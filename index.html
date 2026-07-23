@@ -707,7 +707,7 @@ function updateControlled(dt){
   if(keys['KeyA']) mx += 1;
   if(keys['KeyD']) mx -= 1;
   const mag = Math.hypot(mx,mz);
-  const sprint = keys['Key']||keys['ShiftRight'] ? PLAYER_SPRINT_MULT : 1;
+  const sprint = keys['ShiftLeft']||keys['ShiftRight'] ? PLAYER_SPRINT_MULT : 1;
   if(mag>0.001){
     mx/=mag; mz/=mag;
     p.facing.set(mx,0,mz);
@@ -719,6 +719,7 @@ function updateControlled(dt){
   p.pos.x += p.vel.x*dt; p.pos.z += p.vel.z*dt;
   clampField(p.pos);
 }
+
 /* ---------------------------- UPDATE: AI ------------------------------------ */
 function updateAITeam(team, dt){
   const list = team==='home'?homeTeam:awayTeam;
