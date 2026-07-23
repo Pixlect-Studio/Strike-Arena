@@ -701,22 +701,36 @@ function switchPlayer(){
 /* ---------------------------- UPDATE: CONTROLLED PLAYER --------------------- */
 function updateControlled(dt){
   const p = controlledPlayer;
-  let mx=0, mz=0;
-  if(keys['KeyW']) mz += 1;
-  if(keys['KeyS']) mz -= 1;
-  if(keys['KeyA']) mx += 1;
-  if(keys['KeyD']) mx -= 1;
-  const mag = Math.hypot(mx,mz);
-  const sprint = keys['KeyE']||keys['ShiftRight'] ? PLAYER_SPRINT_MULT : 1;
-  if(mag>0.001){
-    mx/=mag; mz/=mag;
-    p.facing.set(mx,0,mz);
-    const spd = PLAYER_BASE_SPEED*sprint;
-    p.vel.x = mx*spd; p.vel.z = mz*spd;
+
+  let mx = 0, mz = 0;
+
+  if (keys['KeyW']) mz += 1;
+  if (keys['KeyS']) mz -= 1;
+  if (keys['KeyA']) mx += 1;
+  if (keys['KeyD']) mx -= 1;
+
+  const mag = Math.hypot(mx, mz);
+
+  // Sprint toggled by KeyE
+  const sprint = sprintEnabled ? PLAYER_SPRINT_MULT : 1;
+
+  if (mag > 0.001) {
+    mx /= mag;
+    mz /= mag;
+
+    p.facing.set(mx, 0, mz);
+
+    const spd = PLAYER_BASE_SPEED * sprint;
+    p.vel.x = mx * spd;
+    p.vel.z = mz * spd;
   } else {
-    p.vel.x *= 0.8; p.vel.z *= 0.8;
+    p.vel.x *= 0.8;
+    p.vel.z *= 0.8;
   }
-  p.pos.x += p.vel.x*dt; p.pos.z += p.vel.z*dt;
+
+  p.pos.x += p.vel.x * dt;
+  p.pos.z += p.vel.z * dt;
+
   clampField(p.pos);
 }
 
