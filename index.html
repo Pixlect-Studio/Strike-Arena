@@ -707,7 +707,7 @@ function updateControlled(dt){
   if(keys['KeyA']) mx += 1;
   if(keys['KeyD']) mx -= 1;
   const mag = Math.hypot(mx,mz);
-  const sprint = keys['ShiftLeft']||keys['ShiftRight'] ? PLAYER_SPRINT_MULT : 1;
+  const sprint = keys['KeyE']||keys['ShiftRight'] ? PLAYER_SPRINT_MULT : 1;
   if(mag>0.001){
     mx/=mag; mz/=mag;
     p.facing.set(mx,0,mz);
