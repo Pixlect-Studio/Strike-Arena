@@ -153,7 +153,7 @@
     <button class="bigBtn" id="startBtn">KICK OFF ▶</button>
 
     <div class="controlsHint">
-      <div><b>WASD</b> Move &nbsp; <span class="kbd">Shift</span> Sprint &nbsp; <span class="kbd">Space</span> Hold to Shoot</div>
+      <div><b>WASD</b> Move &nbsp; <span class="kbd">E</span> Toggle Sprint &nbsp; <span class="kbd">Space</span> Hold to Shoot</div>
       <div><span class="kbd">F</span> Pass &nbsp; <span class="kbd">Q</span> Switch Player &nbsp; <span class="kbd">Esc</span> Pause</div>
     </div>
   </div>
@@ -169,7 +169,7 @@
   <div id="possessionBadge"></div>
   <div id="topLeftMini"><canvas id="minimap" width="168" height="106"></canvas></div>
   <div id="powerBarWrap" class="glass"><div id="powerBarFill"></div></div>
-  <div id="bottomHint"><span class="kbd">WASD</span> Move &nbsp; <span class="kbd">Shift</span> Sprint &nbsp; <span class="kbd">Space</span> Shoot &nbsp; <span class="kbd">F</span> Pass &nbsp; <span class="kbd">Q</span> Switch</div>
+  <div id="bottomHint"><span class="kbd">WASD</span> Move &nbsp; <span class="kbd">E</span> Sprint &nbsp; <span class="kbd">Space</span> Shoot &nbsp; <span class="kbd">F</span> Pass &nbsp; <span class="kbd">Q</span> Switch</div>
   <div id="muteBtn" class="glass">🔊</div>
 </div>
 
@@ -235,8 +235,8 @@ scene.background = new THREE.Color(0x8fc7ff);
 scene.fog = new THREE.Fog(0x8fc7ff, 90, 220);
 
 const camera = new THREE.PerspectiveCamera(52, window.innerWidth/window.innerHeight, 0.1, 500);
-camera.position.set(0, 34, -52);
-camera.lookAt(0,0,0);
+camera.position.set(-40, 24, 0);
+camera.lookAt(8, 1.5, 0);
 
 function onResize(){
   camera.aspect = window.innerWidth/window.innerHeight;
@@ -355,7 +355,6 @@ function buildGoal(sideSign){
   g.position.set(sideSign*FIELD_HALF_L, 0, 0);
   return g;
 }
-scene.add(buildGoal(-1));
 scene.add(buildGoal(1));
 
 /* ---------------------------- BALL -------------------------------------- */
@@ -381,6 +380,7 @@ const ball = {
   vel: new THREE.Vector3(0,0,0),
   spin: new THREE.Vector3(0,0,0),
   possessor: null,
+  lastTouchTeam: null,
   shotCooldown: 0
 };
 ball.mesh.castShadow = true;
@@ -410,7 +410,7 @@ function numberSprite(num){
 
 function makePlayer(team, kitColor, num, isGK){
   const group = new THREE.Group();
-  const jerseyMat = new THREE.MeshStandardMaterial({ color:kitColor, roughness:0.7 });
+  const jerseyMat = new THREE.MeshStandardMaterial({ color: isGK ? 0xffe135 : kitColor, roughness:0.7 });
   const shortsMat = new THREE.MeshStandardMaterial({ color: isGK ? 0x111111 : 0x1a1a1a, roughness:0.8 });
   const skinMat = new THREE.MeshStandardMaterial({ color:0xd9a066, roughness:0.9 });
 
@@ -437,50 +437,58 @@ function makePlayer(team, kitColor, num, isGK){
     vel: new THREE.Vector3(0,0,0),
     facing: new THREE.Vector3(team==='home'?1:-1,0,0),
     formation: new THREE.Vector3(0,0,0),
+    chaosOffset: new THREE.Vector3((Math.random()-0.5)*5, 0, (Math.random()-0.5)*7),
+    sprintTimer: 1+Math.random()*3,
+    sprinting: false,
     decisionTimer: 0.6 + Math.random()*0.8
   };
 }
 
-/* ---------------------------- FORMATIONS --------------------------------- */
+/* ---------------------------- SPAWN POSITIONS (no formation) --------------- */
 const BASE_FORMATION = [
-  { role:'GK',  x:-48, z:0 },
-  { role:'DEF', x:-32, z:-18 },
-  { role:'DEF', x:-32, z:0 },
-  { role:'DEF', x:-32, z:18 },
-  { role:'MID', x:-8,  z:-14 },
-  { role:'MID', x:-8,  z:14 },
-  { role:'FWD', x:10,  z:0 },
+  { x:-14, z:-18 },
+  { x:-14, z:-6 },
+  { x:-14, z:6 },
+  { x:-14, z:18 },
 ];
 
-let homeTeam = [], awayTeam = [], allPlayers = [];
+let homeTeam = [], awayTeam = [], allPlayers = [], neutralGK = null;
 let controlledPlayer = null;
 
 function buildTeams(){
   homeTeam.forEach(p=>scene.remove(p.group));
   awayTeam.forEach(p=>scene.remove(p.group));
+  if(neutralGK) scene.remove(neutralGK.group);
   homeTeam = []; awayTeam = [];
 
   BASE_FORMATION.forEach((f,i)=>{
-    const hp = makePlayer('home', homeKit, i+1, f.role==='GK');
+    const hp = makePlayer('home', homeKit, i+1, false);
     hp.formation.set(f.x,0,f.z);
     homeTeam.push(hp);
 
-    const ap = makePlayer('away', awayKit, i+1, f.role==='GK');
+    const ap = makePlayer('away', awayKit, i+1, false);
     ap.formation.set(-f.x,0,f.z);
     awayTeam.push(ap);
   });
-  allPlayers = homeTeam.concat(awayTeam);
-  controlledPlayer = homeTeam[5]; // a midfielder
+
+  // one neutral goalkeeper (yellow, supports neither team) guarding the single shared goal
+  neutralGK = makePlayer('neutral', 0xffe135, 0, true);
+  neutralGK.formation.set(FIELD_HALF_L-2, 0, 0);
+
+  allPlayers = homeTeam.concat(awayTeam).concat([neutralGK]);
+  controlledPlayer = homeTeam[0];
 }
 
 /* ---------------------------- INPUT -------------------------------------- */
 const keys = {};
 let shootCharging = false, shootCharge = 0;
+let sprintToggled = false;
 window.addEventListener('keydown', e=>{
   keys[e.code] = true;
   if(e.code === 'Space'){ e.preventDefault(); if(state==='live' && !shootCharging){ shootCharging=true; shootCharge=0; document.getElementById('powerBarWrap').style.display='block'; } }
   if(e.code === 'KeyF' && state==='live'){ tryPass(); }
   if(e.code === 'KeyQ' && state==='live'){ switchPlayer(); }
+  if(e.code === 'KeyE' && state==='live' && !e.repeat){ sprintToggled = !sprintToggled; }
   if(e.code === 'Escape'){ togglePause(); }
 });
 window.addEventListener('keyup', e=>{
@@ -542,6 +550,7 @@ let kickoffTeam = 'home';
 function resetPositions(){
   homeTeam.forEach(p=>{ p.pos.set(p.formation.x,0,p.formation.z); p.vel.set(0,0,0); p.facing.set(1,0,0); });
   awayTeam.forEach(p=>{ p.pos.set(p.formation.x,0,p.formation.z); p.vel.set(0,0,0); p.facing.set(-1,0,0); });
+  if(neutralGK){ neutralGK.pos.set(neutralGK.formation.x,0,neutralGK.formation.z); neutralGK.vel.set(0,0,0); neutralGK.facing.set(-1,0,0); }
   ball.pos.set(0,0.5,0); ball.vel.set(0,0,0); ball.possessor = null; ball.shotCooldown = 0.4;
 }
 
@@ -629,7 +638,7 @@ function clampField(v){
   v.z = Math.max(-FIELD_HALF_W+0.5, Math.min(FIELD_HALF_W-0.5, v.z));
 }
 function attackDirX(team){ return team==='home' ? 1 : -1; }
-function opponentGoalX(team){ return team==='home' ? FIELD_HALF_L : -FIELD_HALF_L; }
+function opponentGoalX(team){ return FIELD_HALF_L; }
 function ownGoalX(team){ return team==='home' ? -FIELD_HALF_L : FIELD_HALF_L; }
 
 function findPossessor(){
@@ -660,13 +669,25 @@ function tryShoot(charge){
   const possessor = ball.possessor;
   if(!possessor || possessor!==controlledPlayer) return;
   const gx = opponentGoalX(possessor.team);
-  const dir = new THREE.Vector3(gx-ball.pos.x, 0, 0 - ball.pos.z);
-  // lateral steer from A/D held
+
+  // Shoot purely in the direction the player is facing — no auto-pull toward goal,
+  // so aiming forward actually goes forward. Steer with A/D if you want to angle it.
+  const dir = new THREE.Vector3(possessor.facing.x, 0, possessor.facing.z);
+  if(dir.lengthSq() < 0.0001) dir.set(attackDirX(possessor.team), 0, 0);
+  dir.normalize();
+
+  // lateral steer from A/D held (rotates the shot left/right relative to facing)
   let steer = 0;
   if(keys['KeyA']) steer -= 1;
   if(keys['KeyD']) steer += 1;
-  dir.z += steer*8;
-  dir.normalize();
+  if(steer !== 0){
+    const angle = steer*0.4;
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const nx = dir.x*cos - dir.z*sin;
+    const nz = dir.x*sin + dir.z*cos;
+    dir.set(nx,0,nz).normalize();
+  }
+
   const power = 16 + Math.min(charge,1)*17;
   ball.vel.set(dir.x*power, 5+Math.min(charge,1)*6, dir.z*power);
   ball.possessor = null; ball.shotCooldown = 0.5;
@@ -682,8 +703,8 @@ function tryPass(fromPlayerOverride){
   const dir = new THREE.Vector3(target.pos.x-ball.pos.x,0,target.pos.z-ball.pos.z);
   const dist = dir.length();
   dir.normalize();
-  const power = Math.min(18, 6+dist*0.55);
-  ball.vel.set(dir.x*power, 2.6, dir.z*power);
+  const power = Math.min(38, 16+dist*1.1);
+  ball.vel.set(dir.x*power, 2.2, dir.z*power);
   ball.possessor = null; ball.shotCooldown = 0.35;
   kickSound();
 }
@@ -702,12 +723,12 @@ function switchPlayer(){
 function updateControlled(dt){
   const p = controlledPlayer;
   let mx=0, mz=0;
-  if(keys['KeyW']) mz += 1;
-  if(keys['KeyS']) mz -= 1;
-  if(keys['KeyA']) mx += 1;
-  if(keys['KeyD']) mx -= 1;
+  if(keys['KeyW']) mx += 1;
+  if(keys['KeyS']) mx -= 1;
+  if(keys['KeyA']) mz -= 1;
+  if(keys['KeyD']) mz += 1;
   const mag = Math.hypot(mx,mz);
-  const sprint = keys['ShiftLeft']||keys['ShiftRight'] ? PLAYER_SPRINT_MULT : 1;
+  const sprint = (sprintToggled || keys['ShiftLeft']||keys['ShiftRight']) ? PLAYER_SPRINT_MULT : 1;
   if(mag>0.001){
     mx/=mag; mz/=mag;
     p.facing.set(mx,0,mz);
@@ -723,31 +744,21 @@ function updateControlled(dt){
 /* ---------------------------- UPDATE: AI ------------------------------------ */
 function updateAITeam(team, dt){
   const list = team==='home'?homeTeam:awayTeam;
-  const possessorTeam = ball.possessor ? ball.possessor.team : null;
-  const teamHasBall = possessorTeam === team; // true even when the USER (controlledPlayer) holds it
-  const oppHasBall = possessorTeam && possessorTeam !== team;
 
-  // rank outfield, non-controlled players by distance to ball -> top 2 press/chase
-  const candidates = list.filter(p => p!==controlledPlayer && !p.isGK && p!==ball.possessor);
-  candidates.sort((a,b)=>{
-    const da = Math.hypot(a.pos.x-ball.pos.x, a.pos.z-ball.pos.z);
-    const db = Math.hypot(b.pos.x-ball.pos.x, b.pos.z-ball.pos.z);
-    return da-db;
+  // whoever on this team is closest to the ball goes straight for it (real tackle attempt)
+  const candidates = list.filter(p => p!==controlledPlayer && p!==ball.possessor);
+  let nearest=null, nearestD=Infinity;
+  candidates.forEach(p=>{
+    const d = Math.hypot(p.pos.x-ball.pos.x, p.pos.z-ball.pos.z);
+    if(d<nearestD){ nearestD=d; nearest=p; }
   });
-  const pressers = new Set(candidates.slice(0,2));
 
   list.forEach(p=>{
     if(p===controlledPlayer) return; // user controls this one
     let targetX, targetZ, speed = AI_BASE_SPEED;
 
-    if(p.isGK){
-      const gx = ownGoalX(team);
-      const rush = Math.abs(ball.pos.x-gx) < 14 ? 4 : 0;
-      targetX = gx + (team==='home'?1:-1)*(2+rush);
-      targetZ = Math.max(-GOAL_HALF_W+1, Math.min(GOAL_HALF_W-1, ball.pos.z*0.85));
-      speed = AI_BASE_SPEED*0.9;
-    } else if(p===ball.possessor && p.team===team){
-      // AI possessor: dribble toward opponent goal, decide pass/shoot occasionally
+    if(p===ball.possessor && p.team===team){
+      // AI possessor: dribble toward the shared goal, decide pass/shoot occasionally
       const gx = opponentGoalX(team);
       targetX = p.pos.x + Math.sign(gx-p.pos.x)*6;
       targetZ = p.pos.z + (Math.random()-0.5)*0.6;
@@ -764,28 +775,30 @@ function updateAITeam(team, dt){
           tryPass(p);
         }
       }
-    } else if(teamHasBall){
-      // TEAMMATE SUPPORT: this team (possibly the user) has the ball -> make an attacking
-      // run ahead of the ball carrier instead of just sitting in formation.
-      const attack = attackDirX(team);
-      targetX = THREE.MathUtils.lerp(p.formation.x, ball.pos.x + attack*11, 0.6);
-      targetZ = THREE.MathUtils.lerp(p.formation.z, ball.pos.z*0.6 + p.formation.z*0.4, 0.5);
-      speed = AI_BASE_SPEED*1.08;
-    } else if(pressers.has(p)){
-      // PRESS: no one on this team has the ball, or the opponent has it -> close it down.
-      targetX = ball.pos.x + ball.vel.x*0.15;
-      targetZ = ball.pos.z + ball.vel.z*0.15;
-      speed = AI_BASE_SPEED*1.12;
+    } else if(p===nearest){
+      // TACKLE: closest player goes straight at the ball, no offset, with a slight lead.
+      targetX = ball.pos.x + ball.vel.x*0.18;
+      targetZ = ball.pos.z + ball.vel.z*0.18;
+      speed = AI_BASE_SPEED*1.15;
     } else {
-      // hold defensive shape, shift toward ball for compactness
-      const shiftX = (ball.pos.x - 0)*0.18;
-      const shiftZ = (ball.pos.z - p.formation.z)*0.22;
-      targetX = p.formation.x + shiftX*0.5;
-      targetZ = p.formation.z + shiftZ;
+      // NO FORMATION: everyone else just loosely goes for the ball area. A small fixed
+      // per-player offset keeps them from all stacking on the exact same spot.
+      targetX = ball.pos.x + ball.vel.x*0.12 + p.chaosOffset.x;
+      targetZ = ball.pos.z + ball.vel.z*0.12 + p.chaosOffset.z;
+      speed = AI_BASE_SPEED*1.05;
     }
 
     const dx = targetX - p.pos.x, dz = targetZ - p.pos.z;
     const d = Math.hypot(dx,dz);
+
+    // occasional AI sprint bursts, independent per player
+    p.sprintTimer -= dt;
+    if(p.sprintTimer<=0){
+      if(p.sprinting){ p.sprinting=false; p.sprintTimer = 1.5+Math.random()*3; }
+      else { p.sprinting = Math.random()<0.5; p.sprintTimer = p.sprinting ? (1+Math.random()*1.5) : (1+Math.random()*2); }
+    }
+    if(p.sprinting) speed *= PLAYER_SPRINT_MULT;
+
     if(d>0.15){
       const nx=dx/d, nz=dz/d;
       p.facing.set(nx,0,nz);
@@ -799,6 +812,42 @@ function updateAITeam(team, dt){
   });
 }
 
+/* ---------------------------- UPDATE: NEUTRAL GOALKEEPER --------------------- */
+function updateNeutralGK(dt){
+  const p = neutralGK;
+  let targetX, targetZ, speed = AI_BASE_SPEED*0.9;
+
+  if(p===ball.possessor){
+    // caught it — hold briefly, then punt it back out into open play (no team to pass to)
+    targetX = p.pos.x; targetZ = p.pos.z;
+    p.decisionTimer -= dt;
+    if(p.decisionTimer<=0){
+      p.decisionTimer = 0.5+Math.random()*0.4;
+      const dir = new THREE.Vector3(-1, 0, (Math.random()-0.5)*1.4).normalize();
+      ball.vel.set(dir.x*20, 7, dir.z*20);
+      ball.possessor = null; ball.shotCooldown = 0.5; kickSound();
+    }
+  } else {
+    const gx = FIELD_HALF_L;
+    const rush = Math.abs(ball.pos.x-gx) < 14 ? 4 : 0;
+    targetX = gx - (2+rush);
+    targetZ = Math.max(-GOAL_HALF_W+1, Math.min(GOAL_HALF_W-1, ball.pos.z*0.85));
+  }
+
+  const dx = targetX-p.pos.x, dz = targetZ-p.pos.z;
+  const d = Math.hypot(dx,dz);
+  if(d>0.15){
+    const nx=dx/d, nz=dz/d;
+    p.facing.set(nx,0,nz);
+    const s = Math.min(speed, d*4);
+    p.vel.x = nx*s; p.vel.z = nz*s;
+  } else {
+    p.vel.x*=0.7; p.vel.z*=0.7;
+  }
+  p.pos.x += p.vel.x*dt; p.pos.z += p.vel.z*dt;
+  clampField(p.pos);
+}
+
 /* ---------------------------- UPDATE: BALL ---------------------------------- */
 function updateBall(dt){
   if(ball.shotCooldown>0) ball.shotCooldown -= dt;
@@ -806,11 +855,24 @@ function updateBall(dt){
   const possessor = ball.shotCooldown<=0 ? findPossessor() : null;
   if(possessor){
     ball.possessor = possessor;
+    if(possessor.team==='home' || possessor.team==='away'){
+      ball.lastTouchTeam = possessor.team;
+    }
+    if(possessor.team==='home' && possessor!==controlledPlayer){
+      controlledPlayer = possessor;
+    }
     const ahead = possessor.facing.clone().setLength(1.1);
     ball.pos.x = possessor.pos.x + ahead.x;
     ball.pos.z = possessor.pos.z + ahead.z;
     ball.pos.y = 0.5;
     ball.vel.set(0,0,0);
+
+    // dribbling the ball into the (single, shared) net counts as a goal too
+    // (the neutral keeper holding it at his own goal line is not a goal)
+    const inGoalZDribble = Math.abs(ball.pos.z) < GOAL_HALF_W;
+    if(state==='live' && (possessor.team==='home'||possessor.team==='away') && ball.pos.x > FIELD_HALF_L-0.5 && inGoalZDribble){
+      goalScored(possessor.team);
+    }
   } else {
     if(ball.possessor && ball.shotCooldown>0){
       // just kicked, let physics take over
@@ -830,15 +892,15 @@ function updateBall(dt){
     if(ball.pos.z > FIELD_HALF_W-0.5){ ball.pos.z = FIELD_HALF_W-0.5; ball.vel.z *= -0.6; }
     if(ball.pos.z < -FIELD_HALF_W+0.5){ ball.pos.z = -FIELD_HALF_W+0.5; ball.vel.z *= -0.6; }
 
-    // goal check
+    // goal check — only ONE goal is live, at the +X end. Whoever touched it last
+    // (home or away) scores their own point. The -X end is just a wall now.
     const inGoalZ = Math.abs(ball.pos.z) < GOAL_HALF_W && ball.pos.y < GOAL_HEIGHT;
     if(ball.pos.x > FIELD_HALF_L-0.5){
-      if(inGoalZ && state==='live'){ goalScored('home'); }
+      if(inGoalZ && state==='live'){ goalScored(ball.lastTouchTeam || 'home'); }
       else { ball.pos.x = FIELD_HALF_L-0.5; ball.vel.x *= -0.6; }
     }
     if(ball.pos.x < -FIELD_HALF_L+0.5){
-      if(inGoalZ && state==='live'){ goalScored('away'); }
-      else { ball.pos.x = -FIELD_HALF_L+0.5; ball.vel.x *= -0.6; }
+      ball.pos.x = -FIELD_HALF_L+0.5; ball.vel.x *= -0.6;
     }
     ball.vel.x *= 0.996; ball.vel.z *= 0.996;
   }
@@ -849,17 +911,21 @@ function updateBall(dt){
 }
 
 /* ---------------------------- CAMERA (broadcast style) ----------------------- */
-let camX = 0, camZ = -52, camY = 34;
+let camX = -40, camZ = 0, camY = 24;
 function updateCamera(dt){
-  const targetX = THREE.MathUtils.clamp(ball.pos.x*0.7 + controlledPlayer.pos.x*0.3, -34, 34);
-  camX += (targetX-camX)*Math.min(1, dt*2.2);
+  const followX = THREE.MathUtils.clamp(ball.pos.x*0.7 + controlledPlayer.pos.x*0.3, -50, 50);
   const zoomOut = Math.min(1, (Math.abs(ball.vel.x)+Math.abs(ball.vel.z))/24);
-  const targetY = 30 + zoomOut*8;
-  const targetZ = -46 - zoomOut*10;
-  camY += (targetY-camY)*Math.min(1,dt*1.5);
-  camZ += (targetZ-camZ)*Math.min(1,dt*1.5);
+  const behindDist = 40 + zoomOut*12;
+  const targetX = followX - behindDist;
+  const targetY = 24 + zoomOut*9;
+  const targetZ = THREE.MathUtils.clamp(ball.pos.z*0.6 + controlledPlayer.pos.z*0.2, -22, 22);
+
+  camX += (targetX-camX)*Math.min(1, dt*2.0);
+  camY += (targetY-camY)*Math.min(1, dt*1.5);
+  camZ += (targetZ-camZ)*Math.min(1, dt*2.2);
+
   camera.position.set(camX, camY, camZ);
-  camera.lookAt(camX*0.6 + ball.pos.x*0.4, 0, ball.pos.z*0.5);
+  camera.lookAt(followX+8, 1.5, targetZ*0.6);
 }
 
 /* ---------------------------- MESH SYNC -------------------------------------- */
@@ -883,6 +949,7 @@ function drawMinimap(){
   function toXY(x,z){ return [ (x+FIELD_HALF_L)/(FIELD_HALF_L*2)*(W-8)+4, (z+FIELD_HALF_W)/(FIELD_HALF_W*2)*(H-8)+4 ]; }
   homeTeam.forEach(p=>{ const [x,y]=toXY(p.pos.x,p.pos.z); miniCtx.fillStyle= p===controlledPlayer? '#ffe14d':'#4d8bff'; miniCtx.beginPath(); miniCtx.arc(x,y,p===controlledPlayer?3.2:2.4,0,Math.PI*2); miniCtx.fill(); });
   awayTeam.forEach(p=>{ const [x,y]=toXY(p.pos.x,p.pos.z); miniCtx.fillStyle='#ff5252'; miniCtx.beginPath(); miniCtx.arc(x,y,2.4,0,Math.PI*2); miniCtx.fill(); });
+  if(neutralGK){ const [x,y]=toXY(neutralGK.pos.x,neutralGK.pos.z); miniCtx.fillStyle='#ffe135'; miniCtx.strokeStyle='#000'; miniCtx.lineWidth=0.6; miniCtx.beginPath(); miniCtx.arc(x,y,2.6,0,Math.PI*2); miniCtx.fill(); miniCtx.stroke(); }
   const [bx,by] = toXY(ball.pos.x, ball.pos.z);
   miniCtx.fillStyle='#fff'; miniCtx.beginPath(); miniCtx.arc(bx,by,2,0,Math.PI*2); miniCtx.fill();
 }
@@ -926,6 +993,7 @@ function animate(){
     updateControlled(dt);
     updateAITeam('home', dt);
     updateAITeam('away', dt);
+    updateNeutralGK(dt);
     updateBall(dt);
     updateHud(dt);
   }
